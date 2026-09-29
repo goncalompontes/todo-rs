@@ -1,0 +1,14 @@
+# Rust build output
+/target
+**/*.rs.bk
+
+# Editor / OS noise
+*.swp
+*.swo
+.DS_Store
+
+# Local todo tool artefacts (in case the tool is pointed at this repo)
+done.txt
+report.txt
+todo.txt.bak
+.todo.bak

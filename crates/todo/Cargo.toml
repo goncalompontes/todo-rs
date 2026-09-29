@@ -1,0 +1,13 @@
+[package]
+name = "todo"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "A backwards-compatible todo.txt CLI host with a plugin system."
+
+[[bin]]
+name = "todo"
+path = "src/main.rs"
+
+[dependencies]
+todo-core.workspace = true

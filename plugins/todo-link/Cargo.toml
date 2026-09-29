@@ -1,0 +1,14 @@
+[package]
+name = "todo-link"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "link"
+path = "src/main.rs"
+
+[dependencies]
+todo-core = { path = "../../crates/todo-core" }
+todo-plugin = { path = "../../crates/todo-plugin" }
+terminal-link = "0.1"

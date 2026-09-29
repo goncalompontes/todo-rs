@@ -1,0 +1,43 @@
+[package]
+name = "todo-actions"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Native Rust ports of the todo.sh add-ons, as plugins."
+
+[dependencies]
+todo-core.workspace = true
+todo-plugin.workspace = true
+terminal_size = "0.4"
+
+[[bin]]
+name = "check"
+path = "src/bin/check.rs"
+
+[[bin]]
+name = "vocab"
+path = "src/bin/vocab.rs"
+
+[[bin]]
+name = "hide"
+path = "src/bin/hide.rs"
+
+[[bin]]
+name = "finish"
+path = "src/bin/finish.rs"
+
+[[bin]]
+name = "here"
+path = "src/bin/here.rs"
+
+[[bin]]
+name = "projectview"
+path = "src/bin/projectview.rs"
+
+[[bin]]
+name = "contextview"
+path = "src/bin/contextview.rs"
+
+[[bin]]
+name = "dep"
+path = "src/bin/dep.rs"

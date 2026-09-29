@@ -1,0 +1,13 @@
+[package]
+name = "todo-due"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "due"
+path = "src/main.rs"
+
+[dependencies]
+todo-core = { path = "../../crates/todo-core" }
+todo-plugin = { path = "../../crates/todo-plugin" }

@@ -1,0 +1,29 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/todo-core",
+    "crates/todo-plugin",
+    "crates/todo",
+    "plugins/todo-actions",
+    "plugins/todo-graph",
+    "plugins/todo-board",
+    "plugins/todo-due",
+    "plugins/todo-again",
+    "plugins/todo-open",
+    "plugins/todo-link",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+authors = ["Gonçalo Pontes <gpm.pontes@gmail.com>"]
+repository = "https://github.com/goncalompontes/todo-rs"
+
+[workspace.dependencies]
+todo-core = { path = "crates/todo-core" }
+todo-plugin = { path = "crates/todo-plugin" }
+
+[profile.release]
+lto = true
+strip = true

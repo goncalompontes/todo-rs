@@ -1,0 +1,15 @@
+[package]
+name = "todo-graph"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "graph"
+path = "src/main.rs"
+
+[dependencies]
+todo-core = { path = "../../crates/todo-core" }
+todo-plugin = { path = "../../crates/todo-plugin" }
+anstyle = "1.0"
+anstream = "1.0"

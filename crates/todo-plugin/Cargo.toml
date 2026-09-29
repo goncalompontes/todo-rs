@@ -1,0 +1,9 @@
+[package]
+name = "todo-plugin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "SDK for writing native Rust plugins for the `todo` host."
+
+[dependencies]
+todo-core.workspace = true
