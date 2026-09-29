@@ -90,11 +90,11 @@ fn regex_filter_is_applied() {
 }
 
 #[test]
-fn check_passes_on_valid_file() {
+fn report_summarises() {
     let (_dir, config) = fixture();
     todo(&config)
-        .arg("check")
+        .arg("report")
         .assert()
         .success()
-        .stdout(predicate::str::contains("check passed"));
+        .stdout(predicate::str::contains("2 total, 2 open, 0 done"));
 }
