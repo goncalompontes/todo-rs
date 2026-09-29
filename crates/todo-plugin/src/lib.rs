@@ -157,6 +157,100 @@ where
     std::process::exit(code);
 }
 
+#[cfg(feature = "async")]
+impl Context {
+    /// Like [`Context::load`], but reads `todo.txt`, `done.txt` and the vocab
+    /// file concurrently on the tokio runtime.
+    pub async fn load_async() -> Result<Context> {
+        let cfg = std::env::var_os("TODO_CONFIG").map(std::path::PathBuf::from);
+        let config = Config::load(cfg.as_deref()).or_else(|_| Config::load(None))?;
+
+        async fn read(path: &std::path::Path) -> std::io::Result<String> {
+            match tokio::fs::read_to_string(path).await {
+                Ok(t) => Ok(t),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+                Err(e) => Err(e),
+            }
+        }
+
+        let (todo_text, done_text, vocab_text) =
+            tokio::try_join!(read(&config.file), read(&config.done_file), async {
+                match &config.vocab_file {
+                    Some(p) => read(p).await,
+                    None => Ok(String::new()),
+                }
+            })
+            .map_err(Error::Io)?;
+
+        let store = Store::from_text(&config.file, &todo_text);
+        let done_store = Store::from_text(&config.done_file, &done_text);
+        let done: Vec<Task> = done_store.tasks().cloned().collect();
+        let vocab = config
+            .vocab_file
+            .as_ref()
+            .map(|_| Vocab::parse(&vocab_text));
+        let colors = Palette::detect(config.plain);
+        Ok(Context {
+            config,
+            store,
+            done,
+            vocab,
+            args: Vec::new(),
+            colors,
+        })
+    }
+}
+
+/// Async counterpart of [`main`] for plugins that need async I/O or an event
+/// stream (requires the `async` feature). Builds a current-thread runtime.
+#[cfg(feature = "async")]
+pub fn main_async<F, Fut>(name: &str, usage: &str, f: F) -> !
+where
+    F: FnOnce(Context) -> Fut,
+    Fut: std::future::Future<Output = Result<i32>>,
+{
+    todo_core::reset_sigpipe();
+    let raw: Vec<String> = std::env::args().skip(1).collect();
+    if matches!(
+        raw.first().map(String::as_str),
+        Some("usage" | "help" | "-h" | "--help")
+    ) {
+        println!("{usage}");
+        std::process::exit(0);
+    }
+
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("{name}: {e}");
+            std::process::exit(2);
+        }
+    };
+
+    let code = runtime.block_on(async move {
+        let mut ctx = match Context::load_async().await {
+            Ok(ctx) => ctx,
+            Err(e) => {
+                eprintln!("{name}: {e}");
+                return 2;
+            }
+        };
+        ctx.args = raw;
+        match f(ctx).await {
+            Ok(code) => code,
+            Err(Error::External(code)) => code,
+            Err(e) => {
+                eprintln!("TODO: {e}");
+                1
+            }
+        }
+    });
+    std::process::exit(code);
+}
+
 /// Re-exports for a one-line `use todo_plugin::prelude::*;` in plugins.
 pub mod prelude {
     pub use crate::args::Args;

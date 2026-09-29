@@ -100,13 +100,19 @@ and behave the same:
 
 | Concern | Crate | Surface |
 |---|---|---|
-| Parsing | `chumsky` | `todo_core::parse` |
+| CLI | `clap` (+ `shlex`) | `crates/todo` (external subcommands → plugins) |
+| Parsing | `chumsky` | `todo_core::parse` (zero-copy) |
 | Diagnostics | `ariadne` | `todo_core::diagnostics`, `validate` |
+| Parallelism | `rayon` | parallel line parsing / validation / store load |
+| Async | `tokio` + `futures` | `todo-plugin` `async` feature; board event loop |
 | Colour | `anstyle` | `todo_core::style` (`Palette`, `style::*`) |
 | Links | `terminal-link` | `todo_core::paths::osc8` |
 | Dates | `chrono` | `todo_core::date` |
 | Path expansion | `shellexpand` | `todo_core::config` |
 | TUI | `ratatui` + `crossterm` | `plugins/todo-board` |
+
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the design and the
+extension points (new plugins, async/parallel workloads, borrowed read models).
 
 `Palette::detect` applies one colour policy everywhere (config `plain`,
 `NO_COLOR`, `TERM=dumb`, non-TTY). New plugins depend only on `todo-plugin`

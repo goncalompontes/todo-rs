@@ -4,6 +4,10 @@
 //! dates, tag shape) is checked here with span-accurate errors, and callers
 //! layer semantic checks (vocab, dependency existence/cycles) on top of the
 //! resulting token stream.
+//!
+//! The parsed representation is **zero-copy**: every token and tag borrows
+//! directly from the source line, so parsing a file allocates only the token
+//! vectors and diagnostics, never the text itself.
 
 use std::ops::Range;
 
@@ -16,50 +20,47 @@ use crate::date;
 pub type Span = Range<usize>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TokenKind {
+pub enum TokenKind<'a> {
     Word,
-    Project(String),
-    Context(String),
-    Group(String),
-    Meta(String, String),
+    Project(&'a str),
+    Context(&'a str),
+    Group(&'a str),
+    Meta(&'a str, &'a str),
 }
 
 #[derive(Debug, Clone)]
-pub struct ParsedToken {
+pub struct ParsedToken<'a> {
     pub span: Span,
-    pub text: String,
-    pub kind: TokenKind,
+    pub text: &'a str,
+    pub kind: TokenKind<'a>,
 }
 
 #[derive(Debug, Clone)]
-pub struct ParsedLine {
+pub struct ParsedLine<'a> {
     pub done: bool,
     pub priority: Option<char>,
-    pub completion_date: Option<String>,
-    pub creation_date: Option<String>,
-    pub tokens: Vec<ParsedToken>,
+    pub completion_date: Option<&'a str>,
+    pub creation_date: Option<&'a str>,
+    pub tokens: Vec<ParsedToken<'a>>,
 }
 
-impl ParsedLine {
-    pub fn id(&self) -> Option<&str> {
+impl<'a> ParsedLine<'a> {
+    pub fn id(&self) -> Option<&'a str> {
+        self.tag("id")
+    }
+
+    pub fn tag(&self, key: &str) -> Option<&'a str> {
         self.tokens.iter().find_map(|t| match &t.kind {
-            TokenKind::Meta(k, v) if k == "id" => Some(v.as_str()),
+            TokenKind::Meta(k, v) if *k == key => Some(*v),
             _ => None,
         })
     }
 
-    pub fn tag<'a>(&'a self, key: &str) -> Option<&'a str> {
-        self.tokens.iter().find_map(|t| match &t.kind {
-            TokenKind::Meta(k, v) if k == key => Some(v.as_str()),
-            _ => None,
-        })
-    }
-
-    pub fn depends(&self) -> Vec<&str> {
+    pub fn depends(&self) -> Vec<&'a str> {
         let mut out = Vec::new();
         for t in &self.tokens {
             if let TokenKind::Meta(k, v) = &t.kind
-                && (k == "depends" || k == "dep")
+                && (*k == "depends" || *k == "dep")
             {
                 out.extend(v.split(',').filter(|s| !s.is_empty()));
             }
@@ -70,7 +71,7 @@ impl ParsedLine {
     pub fn description(&self) -> String {
         self.tokens
             .iter()
-            .map(|t| t.text.as_str())
+            .map(|t| t.text)
             .collect::<Vec<_>>()
             .join(" ")
     }
@@ -90,23 +91,23 @@ pub struct Issue {
 }
 
 #[derive(Debug, Default)]
-pub struct ParseResult {
-    pub line: Option<ParsedLine>,
+pub struct ParseResult<'a> {
+    pub line: Option<ParsedLine<'a>>,
     pub issues: Vec<Issue>,
 }
 
-fn classify(s: &str) -> TokenKind {
+fn classify(s: &str) -> TokenKind<'_> {
     if let Some(v) = s.strip_prefix('+') {
-        TokenKind::Project(v.to_string())
+        TokenKind::Project(v)
     } else if let Some(v) = s.strip_prefix('@') {
-        TokenKind::Context(v.to_string())
+        TokenKind::Context(v)
     } else if let Some(v) = s.strip_prefix('%') {
-        TokenKind::Group(v.to_string())
+        TokenKind::Group(v)
     } else if let Some((k, v)) = s.split_once(':') {
         if k.is_empty() {
             TokenKind::Word
         } else {
-            TokenKind::Meta(k.to_string(), v.to_string())
+            TokenKind::Meta(k, v)
         }
     } else {
         TokenKind::Word
@@ -114,17 +115,10 @@ fn classify(s: &str) -> TokenKind {
 }
 
 fn valid_date(s: &str) -> bool {
-    let mut parts = s.split('-');
-    let (Some(y), Some(m), Some(d)) = (parts.next(), parts.next(), parts.next()) else {
-        return false;
-    };
-    let (Ok(y), Ok(m), Ok(d)) = (y.parse::<i32>(), m.parse::<u32>(), d.parse::<u32>()) else {
-        return false;
-    };
-    (1..=12).contains(&m) && d >= 1 && d <= date::days_in_month(y, m)
+    date::parse(s).is_some()
 }
 
-fn line_parser<'a>() -> impl Parser<'a, &'a str, ParsedLine, extra::Err<Rich<'a, char>>> {
+fn line_parser<'a>() -> impl Parser<'a, &'a str, ParsedLine<'a>, extra::Err<Rich<'a, char>>> {
     let d4 = any()
         .filter(|c: &char| c.is_ascii_digit())
         .repeated()
@@ -141,11 +135,11 @@ fn line_parser<'a>() -> impl Parser<'a, &'a str, ParsedLine, extra::Err<Rich<'a,
         .then_ignore(just('-'))
         .then(d2)
         .to_slice()
-        .validate(|s: &str, e, emitter| {
+        .validate(|s: &'a str, e, emitter| {
             if !valid_date(s) {
                 emitter.emit(Rich::custom(e.span(), format!("invalid date '{s}'")));
             }
-            s.to_string()
+            s
         });
 
     let done = just("x ").to(true).or_not().map(|o| o.unwrap_or(false));
@@ -161,11 +155,11 @@ fn line_parser<'a>() -> impl Parser<'a, &'a str, ParsedLine, extra::Err<Rich<'a,
         .collect::<Vec<_>>();
 
     let token = none_of(' ').repeated().at_least(1).to_slice().map_with(
-        |s: &str, e: &mut MapExtra<'a, '_, &'a str, extra::Err<Rich<'a, char>>>| {
+        |s: &'a str, e: &mut MapExtra<'a, '_, &'a str, extra::Err<Rich<'a, char>>>| {
             let span: Span = e.span().into_range();
             ParsedToken {
                 span,
-                text: s.to_string(),
+                text: s,
                 kind: classify(s),
             }
         },
@@ -181,9 +175,9 @@ fn line_parser<'a>() -> impl Parser<'a, &'a str, ParsedLine, extra::Err<Rich<'a,
         .then_ignore(end())
         .map(|(((done, priority), dates), tokens)| {
             let (completion_date, creation_date) = match (done, dates.len()) {
-                (true, 2) => (Some(dates[0].clone()), Some(dates[1].clone())),
-                (true, 1) => (Some(dates[0].clone()), None),
-                (false, 1) => (None, Some(dates[0].clone())),
+                (true, 2) => (Some(dates[0]), Some(dates[1])),
+                (true, 1) => (Some(dates[0]), None),
+                (false, 1) => (None, Some(dates[0])),
                 _ => (None, None),
             };
             ParsedLine {
@@ -198,7 +192,7 @@ fn line_parser<'a>() -> impl Parser<'a, &'a str, ParsedLine, extra::Err<Rich<'a,
 
 /// Parse a single line. `base` is the byte offset of the line start in the
 /// file, used to shift spans so diagnostics can point at the whole file.
-pub fn parse_line(input: &str, base: usize) -> ParseResult {
+pub fn parse_line(input: &str, base: usize) -> ParseResult<'_> {
     let (line, errors) = line_parser().parse(input).into_output_errors();
     let mut issues: Vec<Issue> = errors
         .into_iter()
@@ -224,14 +218,14 @@ fn shift(mut span: Span, base: usize) -> Span {
 
 /// Semantic validation of individual metadata tokens (values only; vocab and
 /// dependency existence live in `validate`).
-fn validate_tokens(line: &ParsedLine, base: usize) -> Vec<Issue> {
+fn validate_tokens(line: &ParsedLine<'_>, base: usize) -> Vec<Issue> {
     let mut issues = Vec::new();
     for token in &line.tokens {
         let TokenKind::Meta(key, value) = &token.kind else {
             continue;
         };
         let span = shift(token.span.clone(), base);
-        match key.as_str() {
+        match *key {
             "due" | "t" => {
                 if !valid_date(value) {
                     issues.push(Issue {
@@ -300,7 +294,7 @@ mod tests {
         assert!(r.issues.is_empty());
         let line = r.line.unwrap();
         assert_eq!(line.priority, Some('A'));
-        assert_eq!(line.creation_date.as_deref(), Some("2026-09-01"));
+        assert_eq!(line.creation_date, Some("2026-09-01"));
         assert_eq!(line.tokens.len(), 4);
     }
 

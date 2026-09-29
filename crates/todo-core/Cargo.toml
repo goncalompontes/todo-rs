@@ -12,3 +12,4 @@ anstyle = "1"
 terminal-link = "0.1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 shellexpand = "3"
+rayon.workspace = true

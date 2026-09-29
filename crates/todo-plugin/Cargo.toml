@@ -7,3 +7,9 @@ description = "SDK for writing native Rust plugins for the `todo` host."
 
 [dependencies]
 todo-core.workspace = true
+tokio = { version = "1", optional = true, features = ["rt", "macros", "fs"] }
+
+[features]
+# Enables `main_async`/`Context::load_async` for plugins that need async I/O or
+# event streams (e.g. the TUI board).
+async = ["dep:tokio"]

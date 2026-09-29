@@ -8,11 +8,12 @@
 use std::cmp::{max, min};
 use std::io;
 
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::event::{Event, EventStream, KeyCode, KeyEventKind};
 use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
+use futures::StreamExt;
 use ratatui::backend::{Backend, CrosstermBackend};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -29,14 +30,14 @@ const HINT: &str =
 
 /// Run the interactive board until the user quits. The terminal is always
 /// restored, even on error.
-pub fn run(app: &mut App) -> todo_core::Result<()> {
+pub async fn run(app: &mut App) -> todo_core::Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = event_loop(&mut terminal, app);
+    let result = event_loop(&mut terminal, app).await;
 
     let _ = disable_raw_mode();
     let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
@@ -44,7 +45,13 @@ pub fn run(app: &mut App) -> todo_core::Result<()> {
     result
 }
 
-fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> todo_core::Result<()> {
+async fn event_loop<B: Backend>(
+    terminal: &mut Terminal<B>,
+    app: &mut App,
+) -> todo_core::Result<()> {
+    // Async crossterm event stream: no blocking reads, and resize events flow
+    // through the same loop.
+    let mut events = EventStream::new();
     loop {
         let graph = DepGraph::new(&app.store, &app.done);
         let cards = model::cards(&graph);
@@ -52,7 +59,12 @@ fn event_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> todo_cor
 
         terminal.draw(|f| draw(f, app, &cards, &columns))?;
 
-        let Event::Key(key) = event::read()? else {
+        let event = match events.next().await {
+            Some(Ok(event)) => event,
+            Some(Err(e)) => return Err(e.into()),
+            None => return Ok(()),
+        };
+        let Event::Key(key) = event else {
             continue;
         };
         if key.kind == KeyEventKind::Release {

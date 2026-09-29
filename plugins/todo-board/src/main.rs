@@ -30,10 +30,12 @@ use model::Dimension;
 const USAGE: &str = "  board [--by status|state|module|kind|group|priority|path]\n        [--snapshot] [--no-color] [--width N]";
 
 fn main() {
-    todo_plugin::main("board", USAGE, run);
+    // Async entry point: the TUI drives a crossterm event stream on a tokio
+    // runtime, and `Context::load_async` reads todo/done/vocab concurrently.
+    todo_plugin::main_async("board", USAGE, run);
 }
 
-fn run(ctx: &mut Context) -> todo_core::Result<i32> {
+async fn run(ctx: Context) -> todo_core::Result<i32> {
     let mut args = ctx.args.clone();
     // Legacy dispatch sometimes passes the action name as the first argument.
     if args.first().map(String::as_str) == Some("board") {
@@ -65,7 +67,7 @@ fn run(ctx: &mut Context) -> todo_core::Result<i32> {
             ctx.config.done_file.clone(),
             opts.dim,
         );
-        tui::run(&mut app)?;
+        tui::run(&mut app).await?;
         Ok(0)
     }
 }

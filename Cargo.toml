@@ -23,6 +23,9 @@ repository = "https://github.com/goncalompontes/todo-rs"
 [workspace.dependencies]
 todo-core = { path = "crates/todo-core" }
 todo-plugin = { path = "crates/todo-plugin" }
+clap = { version = "4", features = ["derive"] }
+shlex = "1"
+rayon = "1"
 
 [profile.release]
 lto = true

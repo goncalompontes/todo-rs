@@ -10,6 +10,8 @@ path = "src/main.rs"
 
 [dependencies]
 todo-core = { path = "../../crates/todo-core" }
-todo-plugin = { path = "../../crates/todo-plugin" }
+todo-plugin = { path = "../../crates/todo-plugin", features = ["async"] }
 ratatui = "0.29"
-crossterm = "0.28"
+crossterm = { version = "0.28", features = ["event-stream"] }
+tokio = { version = "1", features = ["rt", "macros"] }
+futures = "0.3"

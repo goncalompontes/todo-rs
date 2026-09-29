@@ -11,3 +11,5 @@ path = "src/main.rs"
 
 [dependencies]
 todo-core.workspace = true
+clap.workspace = true
+shlex.workspace = true

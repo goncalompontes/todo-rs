@@ -3,6 +3,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use rayon::prelude::*;
+
 use crate::error::Result;
 use crate::task::Task;
 
@@ -29,25 +31,35 @@ impl Store {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
             Err(e) => return Err(e.into()),
         };
-        let mut lines = Vec::new();
+        Ok(Store::from_text(path, &text))
+    }
+
+    /// Parse a store from text already in memory (used by async loaders).
+    pub fn from_text(path: &Path, text: &str) -> Store {
         // `split` keeps a trailing empty element for a trailing newline; drop
         // exactly one so we don't invent an extra blank line.
         let mut raw: Vec<&str> = text.split('\n').collect();
         if raw.last() == Some(&"") {
             raw.pop();
         }
-        for (i, line) in raw.iter().enumerate() {
-            let line = line.strip_suffix('\r').unwrap_or(line);
-            if line.trim().is_empty() {
-                lines.push(Line::Blank(line.to_string()));
-            } else {
-                lines.push(Line::Task(Task::parse(i + 1, line)));
-            }
-        }
-        Ok(Store {
+        // Parse lines in parallel; `Task::parse` is pure and each line is
+        // independent.
+        let lines: Vec<Line> = raw
+            .par_iter()
+            .enumerate()
+            .map(|(i, line)| {
+                let line = line.strip_suffix('\r').unwrap_or(line);
+                if line.trim().is_empty() {
+                    Line::Blank(line.to_string())
+                } else {
+                    Line::Task(Task::parse(i + 1, line))
+                }
+            })
+            .collect();
+        Store {
             path: path.to_path_buf(),
             lines,
-        })
+        }
     }
 
     /// All tasks in file order (skipping blank lines).
