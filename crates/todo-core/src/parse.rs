@@ -287,6 +287,7 @@ fn validate_tokens(line: &ParsedLine<'_>, base: usize) -> Vec<Issue> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     #[test]
     fn parses_plain() {
@@ -308,5 +309,23 @@ mod tests {
     fn validates_meta() {
         let r = parse_line("task sev:abc due:nope", 0);
         assert_eq!(r.issues.len(), 2);
+    }
+
+    proptest! {
+        /// Parsing arbitrary input never panics.
+        #[test]
+        fn parse_never_panics(input in ".{0,200}") {
+            let _ = parse_line(&input, 0);
+        }
+
+        /// A well-formed task built from parts round-trips its description.
+        #[test]
+        fn description_round_trips(desc in "[ -~]{0,80}") {
+            let line = format!("(A) 2026-09-01 {desc}");
+            let result = parse_line(&line, 0);
+            if let Some(parsed) = result.line {
+                assert_eq!(parsed.description(), desc.split_whitespace().collect::<Vec<_>>().join(" "));
+            }
+        }
     }
 }

@@ -54,7 +54,15 @@ impl Config {
             }
             None => std::env::vars().collect(),
         };
-        Ok(Config::from_env(config_file.map(Path::to_path_buf), env))
+        let mut config = Config::from_env(config_file.map(Path::to_path_buf), env);
+        // A native TOML config, if present, layers over the bash config.
+        if let Some(path) = find_toml(config_file) {
+            let text = std::fs::read_to_string(&path)?;
+            let parsed: TomlConfig = toml::from_str(&text)
+                .map_err(|e| Error::config(format!("{}: {e}", path.display())))?;
+            apply_toml(&mut config, parsed);
+        }
+        Ok(config)
     }
 
     /// Discover a config file the way `todo.sh` does, returning the first that
@@ -210,6 +218,121 @@ pub fn home_dir() -> Option<PathBuf> {
 /// Expand a leading `~` in a configured path.
 fn expand(path: PathBuf) -> PathBuf {
     PathBuf::from(shellexpand::tilde(&path.to_string_lossy()).into_owned())
+}
+
+/// Native TOML configuration (`config.toml`), an alternative/overlay to the
+/// `todo.sh` bash config. All fields are optional so it can be a partial patch.
+#[derive(Debug, Default, serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+struct TomlConfig {
+    dir: Option<String>,
+    file: Option<String>,
+    done_file: Option<String>,
+    report_file: Option<String>,
+    vocab_file: Option<String>,
+    actions_dirs: Option<Vec<String>>,
+    default_action: Option<String>,
+    auto_archive: Option<bool>,
+    preserve_line_numbers: Option<bool>,
+    plain: Option<bool>,
+    date_on_add: Option<bool>,
+    priority_on_add: Option<String>,
+    hide_context: Option<u32>,
+    hide_project: Option<u32>,
+    final_filter: Option<String>,
+    sort_command: Option<String>,
+}
+
+/// Locate the native config: `$TODO_CONFIG_TOML`, then `config.toml` beside
+/// the bash config / `.todo/`, then the XDG config dir.
+fn find_toml(config_file: Option<&Path>) -> Option<PathBuf> {
+    if let Ok(p) = std::env::var("TODO_CONFIG_TOML")
+        && !p.is_empty()
+    {
+        let p = expand(PathBuf::from(p));
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    if let Some(cf) = config_file {
+        let candidates = [
+            Some(cf.with_file_name("config.toml")),
+            cf.parent().map(|d| d.join("config.toml")),
+        ];
+        for candidate in candidates.into_iter().flatten() {
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    if let Ok(dir) = std::env::var("TODO_DIR") {
+        let p = Path::new(&dir).join(".todo/config.toml");
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    if let Some(home) = home_dir() {
+        let p = home.join(".config/todo/config.toml");
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    None
+}
+
+fn apply_toml(config: &mut Config, t: TomlConfig) {
+    if let Some(v) = t.dir {
+        config.dir = expand(PathBuf::from(v));
+    }
+    if let Some(v) = t.file {
+        config.file = expand(PathBuf::from(v));
+    }
+    if let Some(v) = t.done_file {
+        config.done_file = expand(PathBuf::from(v));
+    }
+    if let Some(v) = t.report_file {
+        config.report_file = expand(PathBuf::from(v));
+    }
+    if let Some(v) = t.vocab_file {
+        config.vocab_file = Some(expand(PathBuf::from(v)));
+    }
+    if let Some(v) = t.actions_dirs {
+        config.actions_dirs = v
+            .iter()
+            .map(|s| expand(PathBuf::from(s)))
+            .filter(|p| p.is_dir())
+            .collect();
+    }
+    if let Some(v) = t.default_action {
+        config.default_action = v;
+    }
+    if let Some(v) = t.auto_archive {
+        config.auto_archive = v;
+    }
+    if let Some(v) = t.preserve_line_numbers {
+        config.preserve_line_numbers = v;
+    }
+    if let Some(v) = t.plain {
+        config.plain = v;
+    }
+    if let Some(v) = t.date_on_add {
+        config.date_on_add = v;
+    }
+    if let Some(v) = t.priority_on_add {
+        config.priority_on_add = v.chars().next().filter(|c| c.is_ascii_uppercase());
+    }
+    if let Some(v) = t.hide_context {
+        config.hide_context = v;
+    }
+    if let Some(v) = t.hide_project {
+        config.hide_project = v;
+    }
+    if let Some(v) = t.final_filter {
+        config.final_filter = Some(v);
+    }
+    if let Some(v) = t.sort_command {
+        config.sort_command = Some(v);
+    }
 }
 
 /// Source a bash config file and return the resulting environment.

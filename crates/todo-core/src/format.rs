@@ -1,5 +1,7 @@
 //! Terminal formatting shared by the host and plugins.
 
+use regex::RegexBuilder;
+
 use crate::config::Config;
 use crate::store::Store;
 use crate::style::{self, Palette};
@@ -69,6 +71,8 @@ pub struct ListOptions {
     pub all: bool,
     pub hide_context: bool,
     pub hide_project: bool,
+    /// Treat `filters` as case-insensitive regular expressions.
+    pub regex: bool,
     pub filters: Vec<String>,
 }
 
@@ -78,28 +82,59 @@ impl ListOptions {
             all: false,
             hide_context: config.hide_context % 2 == 1,
             hide_project: config.hide_project % 2 == 1,
+            regex: false,
             filters: Vec::new(),
         }
     }
 }
 
-fn matches_filters(task: &Task, filters: &[String]) -> bool {
+/// Validate regex filters up-front so listing can't silently match nothing.
+pub fn validate_filters(filters: &[String], regex: bool) -> crate::error::Result<()> {
+    if !regex {
+        return Ok(());
+    }
+    for f in filters {
+        RegexBuilder::new(f)
+            .case_insensitive(true)
+            .build()
+            .map_err(|e| crate::error::Error::usage(format!("invalid regex '{f}': {e}")))?;
+    }
+    Ok(())
+}
+
+fn matches_filters(task: &Task, filters: &[String], regex: bool) -> bool {
     if filters.is_empty() {
         return true;
     }
-    let hay = task.render().to_ascii_lowercase();
-    filters
-        .iter()
-        .all(|f| hay.contains(&f.to_ascii_lowercase()))
+    if regex {
+        let hay = task.render();
+        filters.iter().all(|f| {
+            RegexBuilder::new(f)
+                .case_insensitive(true)
+                .build()
+                .map(|re| re.is_match(&hay))
+                .unwrap_or(false)
+        })
+    } else {
+        let hay = task.render().to_ascii_lowercase();
+        filters
+            .iter()
+            .all(|f| hay.contains(&f.to_ascii_lowercase()))
+    }
+}
+
+/// The tasks a [`ListOptions`] selects (used by text and JSON output alike).
+pub fn select_tasks<'a>(store: &'a Store, opts: &ListOptions) -> Vec<&'a Task> {
+    store
+        .tasks()
+        .filter(|t| opts.all || !t.is_done())
+        .filter(|t| matches_filters(t, &opts.filters, opts.regex))
+        .collect()
 }
 
 /// Render a filtered list, right-aligning line numbers like `todo.sh list`.
 pub fn render_list(store: &Store, opts: &ListOptions, palette: Palette) -> String {
-    let selected: Vec<&Task> = store
-        .tasks()
-        .filter(|t| opts.all || !t.is_done())
-        .filter(|t| matches_filters(t, &opts.filters))
-        .collect();
+    let selected = select_tasks(store, opts);
     if selected.is_empty() {
         return format!(
             "{}\n",

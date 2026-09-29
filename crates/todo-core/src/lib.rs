@@ -12,6 +12,7 @@ pub mod format;
 pub mod parse;
 pub mod paths;
 pub mod plugin;
+pub mod read;
 pub mod store;
 pub mod style;
 pub mod task;

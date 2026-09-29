@@ -14,7 +14,8 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use clap::{ArgAction, Parser, Subcommand};
+use clap::{ArgAction, CommandFactory, Parser, Subcommand};
+use clap_complete::Shell;
 
 use todo_core::config::Config;
 use todo_core::error::{Error, Result};
@@ -38,6 +39,8 @@ pub struct Opts {
     pub hide_project: u32,
     pub hide_priority: bool,
     pub disable_filter: bool,
+    pub json: bool,
+    pub regex: bool,
 }
 
 pub struct App {
@@ -108,6 +111,14 @@ struct Cli {
     /// Disable the implicit list filter.
     #[arg(short = 'x', global = true)]
     disable_filter: bool,
+
+    /// Emit machine-readable JSON.
+    #[arg(long = "json", global = true)]
+    json: bool,
+
+    /// Treat list filters as regular expressions.
+    #[arg(long = "regex", global = true)]
+    regex: bool,
 
     /// Toggle hiding context names.
     #[arg(short = '@', global = true, action = ArgAction::Count)]
@@ -252,6 +263,19 @@ enum Action {
         args: Vec<String>,
     },
 
+    /// Generate shell completions (from the clap definition).
+    Completions {
+        #[arg(value_enum)]
+        shell: Shell,
+    },
+
+    /// Generate a roff man page.
+    Man {
+        /// Write `todo.1` into this directory instead of stdout.
+        #[arg(long, value_name = "DIR")]
+        out: Option<PathBuf>,
+    },
+
     /// Any action we did not define: forwarded to the plugin system.
     #[command(external_subcommand)]
     External(Vec<OsString>),
@@ -287,6 +311,8 @@ impl Action {
             Report { args } => ("report", args),
             Plugins { args } => ("plugins", args),
             Shorthelp { args } => ("shorthelp", args),
+            Completions { .. } => ("completions", Vec::new()),
+            Man { .. } => ("man", Vec::new()),
             External(values) => {
                 let mut it = values.into_iter();
                 let name = it
@@ -355,8 +381,32 @@ fn run(cli: Cli) -> Result<i32> {
         }
     };
 
+    // Generated helpers are handled before dispatch and never reach plugins.
+    let (action, args) = match command {
+        Action::Completions { shell } => {
+            let mut cmd = Cli::command();
+            clap_complete::generate(shell, &mut cmd, "todo", &mut std::io::stdout());
+            return Ok(0);
+        }
+        Action::Man { out } => {
+            let man = clap_mangen::Man::new(Cli::command());
+            match out {
+                Some(dir) => {
+                    std::fs::create_dir_all(&dir)?;
+                    man.generate_to(dir.join("todo.1"))?;
+                }
+                None => {
+                    let mut buf = Vec::new();
+                    man.render(&mut buf)?;
+                    print!("{}", String::from_utf8_lossy(&buf));
+                }
+            }
+            return Ok(0);
+        }
+        other => other.split(),
+    };
+
     let plain = opts.plain.unwrap_or(config.plain);
-    let (action, args) = command.split();
     let action = action.to_ascii_lowercase();
 
     // Splitting the action may have changed the effective config flags only
@@ -417,6 +467,8 @@ impl Opts {
             hide_project: cli.hide_project as u32,
             hide_priority: cli.hide_priority % 2 == 1,
             disable_filter: cli.disable_filter,
+            json: cli.json,
+            regex: cli.regex,
         }
     }
 }

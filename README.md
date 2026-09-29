@@ -111,8 +111,29 @@ and behave the same:
 | Path expansion | `shellexpand` | `todo_core::config` |
 | TUI | `ratatui` + `crossterm` | `plugins/todo-board` |
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the design and the
-extension points (new plugins, async/parallel workloads, borrowed read models).
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the design and
+[`docs/ROADMAP.md`](docs/ROADMAP.md) for the expansion points and their status.
+
+## Extra tooling
+
+- `--json` — structured output for `list`, `listall`, `listpri` and `report`.
+- `--regex` — treat `list` filters as case-insensitive regular expressions.
+- `todo completions <bash|zsh|fish|powershell|elvish>` — shell completions
+  generated from the `clap` definition.
+- `todo man` — a roff man page (stdout, or `--out DIR`).
+- `.todo/config.toml` (or `$TODO_CONFIG_TOML`) — a typed config that layers over
+  the bash config, e.g.:
+
+  ```toml
+  date-on-add = true
+  default-action = "next"
+  plain = false
+  ```
+
+- `report` renders a table on a terminal and plain columns when piped.
+
+All of these are opt-in; the default output stays byte-compatible with the
+legacy scripts.
 
 `Palette::detect` applies one colour policy everywhere (config `plain`,
 `NO_COLOR`, `TERM=dumb`, non-TTY). New plugins depend only on `todo-plugin`

@@ -4,6 +4,8 @@ use std::collections::BTreeSet;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
+use comfy_table::{Table, presets::UTF8_FULL};
+
 use todo_core::date;
 use todo_core::error::{Error, Result};
 use todo_core::format::{self, ListOptions};
@@ -124,6 +126,14 @@ pub fn dispatch(mut app: App, action: &str, args: &[String]) -> Result<i32> {
 
 fn save(app: &mut App) -> Result<()> {
     app.store.save()
+}
+
+/// Emit a JSON array of tasks for `--json`.
+fn print_json(tasks: &[&Task]) -> Result<i32> {
+    let items: Vec<_> = tasks.iter().map(|t| t.to_json()).collect();
+    let text = serde_json::to_string_pretty(&items).map_err(|e| Error::Parse(e.to_string()))?;
+    println!("{text}");
+    Ok(0)
 }
 
 fn today() -> String {
@@ -379,6 +389,7 @@ fn list_options(app: &App, all: bool, filters: Vec<String>) -> ListOptions {
     opts.filters = filters;
     opts.hide_context = app.opts.hide_context % 2 == 1 || app.config.hide_context % 2 == 1;
     opts.hide_project = app.opts.hide_project % 2 == 1 || app.config.hide_project % 2 == 1;
+    opts.regex = app.opts.regex;
     opts
 }
 
@@ -389,6 +400,11 @@ fn list(app: &mut App, args: &[String], all: bool) -> Result<i32> {
         args.to_vec()
     };
     let opts = list_options(app, all, filters);
+    format::validate_filters(&opts.filters, opts.regex)?;
+    if app.opts.json {
+        let selected = format::select_tasks(&app.store, &opts);
+        return print_json(&selected);
+    }
     let palette = app.colors;
     print!("{}", format::render_list(&app.store, &opts, palette));
     Ok(0)
@@ -414,6 +430,9 @@ fn list_priority(app: &mut App, args: &[String]) -> Result<i32> {
         .filter(|t| filters.iter().all(|f| t.render().contains(f.as_str())))
         .collect();
     selected.sort_by_key(|t| t.line_no);
+    if app.opts.json {
+        return print_json(&selected);
+    }
     let width = selected
         .iter()
         .map(|t| t.line_no.to_string().len())
@@ -485,7 +504,6 @@ fn report(app: &mut App) -> Result<i32> {
     let total = app.store.tasks().count();
     let done = app.store.tasks().filter(|t| t.is_done()).count();
     let open = total - done;
-    println!("TODO: {total} total, {open} open, {done} done");
     let mut projects: std::collections::BTreeMap<String, (usize, usize)> = Default::default();
     for task in app.store.tasks() {
         for p in task.projects() {
@@ -497,8 +515,37 @@ fn report(app: &mut App) -> Result<i32> {
             }
         }
     }
-    for (project, (o, d)) in projects {
-        println!("  {project}: {o} open, {d} done");
+
+    if app.opts.json {
+        let projects_json: serde_json::Map<String, serde_json::Value> = projects
+            .iter()
+            .map(|(p, (o, d))| (p.clone(), serde_json::json!({ "open": o, "done": d })))
+            .collect();
+        let object = serde_json::json!({
+            "total": total,
+            "open": open,
+            "done": done,
+            "projects": projects_json,
+        });
+        let text =
+            serde_json::to_string_pretty(&object).map_err(|e| Error::Parse(e.to_string()))?;
+        println!("{text}");
+        return Ok(0);
+    }
+
+    println!("TODO: {total} total, {open} open, {done} done");
+    if app.colors.enabled() && !projects.is_empty() {
+        let mut table = Table::new();
+        table.load_preset(UTF8_FULL);
+        table.set_header(vec!["Project", "Open", "Done"]);
+        for (project, (o, d)) in &projects {
+            table.add_row(vec![project.clone(), o.to_string(), d.to_string()]);
+        }
+        println!("{table}");
+    } else {
+        for (project, (o, d)) in &projects {
+            println!("  {project}: {o} open, {d} done");
+        }
     }
     Ok(0)
 }

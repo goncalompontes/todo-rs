@@ -2,6 +2,25 @@
 
 use crate::date;
 
+/// A serializable, read-only view of a task for `--json` output.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TaskJson<'a> {
+    pub line: usize,
+    pub done: bool,
+    pub priority: Option<char>,
+    pub completion_date: Option<&'a str>,
+    pub creation_date: Option<&'a str>,
+    pub description: &'a str,
+    pub id: Option<&'a str>,
+    pub projects: Vec<&'a str>,
+    pub contexts: Vec<&'a str>,
+    pub groups: Vec<&'a str>,
+    pub depends: Vec<&'a str>,
+    pub severity: Option<u32>,
+    pub due: Option<&'a str>,
+    pub path: Option<&'a str>,
+}
+
 /// A parsed task, keeping enough structure to re-render the original line.
 ///
 /// Only the prefix (`x`, priority, dates) is parsed; the description is kept
@@ -185,6 +204,32 @@ impl Task {
     /// Severity from `sev:N`.
     pub fn severity(&self) -> Option<u32> {
         self.tag("sev")?.parse().ok()
+    }
+
+    /// First `file:`/`dir:`/`path:` location token, if any.
+    pub fn path(&self) -> Option<&str> {
+        self.tokens()
+            .find(|t| t.starts_with("file:") || t.starts_with("dir:") || t.starts_with("path:"))
+    }
+
+    /// A borrowed, serializable view for `--json` output.
+    pub fn to_json(&self) -> TaskJson<'_> {
+        TaskJson {
+            line: self.line_no,
+            done: self.done,
+            priority: self.priority,
+            completion_date: self.completion_date.as_deref(),
+            creation_date: self.creation_date.as_deref(),
+            description: &self.description,
+            id: self.id(),
+            projects: self.projects().collect(),
+            contexts: self.contexts().collect(),
+            groups: self.groups().collect(),
+            depends: self.depends(),
+            severity: self.severity(),
+            due: self.tag("due"),
+            path: self.path(),
+        }
     }
 
     // --- mutation ---------------------------------------------------------
